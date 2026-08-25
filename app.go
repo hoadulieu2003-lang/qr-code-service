@@ -69,6 +69,8 @@ func NewRouter(config Config, store *ProductStore) http.Handler {
 		router.Post("/api/products", createProductHandler(config, store))
 		router.Get("/api/products/{traceCode}/qr.png", productQRHandler(config, store))
 		router.Get("/trace/{traceCode}", publicTracePageHandler(store))
+		router.Get("/admin", adminFormHandler())
+		router.Post("/admin/products", adminCreateProductHandler(config, store))
 	}
 
 	return router
