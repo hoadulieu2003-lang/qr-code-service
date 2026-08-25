@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/go-chi/chi"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 type createProductResponse struct {
@@ -71,6 +74,39 @@ func createProductHandler(config Config, store *ProductStore) http.HandlerFunc {
 			TraceURL:  traceURL,
 			QRURL:     config.PublicBaseURL + "/api/products/" + product.TraceCode + "/qr.png",
 		})
+	}
+}
+
+func productQRHandler(config Config, store *ProductStore) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if !hasAPIKey(request, config.APIKey) {
+			writeJSONError(writer, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		product, err := store.Get(chi.URLParam(request, "traceCode"))
+		if errors.Is(err, ErrProductNotFound) {
+			writeJSONError(writer, http.StatusNotFound, "product not found")
+			return
+		}
+		if err != nil {
+			writeJSONError(writer, http.StatusInternalServerError, "could not load product")
+			return
+		}
+
+		traceURL, err := config.TraceURL(product.TraceCode)
+		if err != nil {
+			writeJSONError(writer, http.StatusServiceUnavailable, "public trace URL is unavailable")
+			return
+		}
+		png, err := qrcode.Encode(traceURL, qrcode.High, 512)
+		if err != nil {
+			writeJSONError(writer, http.StatusInternalServerError, "could not generate QR code")
+			return
+		}
+
+		writer.Header().Set("Content-Type", "image/png")
+		_, _ = writer.Write(png)
 	}
 }
 

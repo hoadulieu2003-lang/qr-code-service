@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,111 @@ func newTestRouter(t *testing.T, publicBaseURL string) http.Handler {
 	config.PublicBaseURL = publicBaseURL
 	store, err := NewProductStore(config.DataFile)
 	if err != nil {
+		t.Fatal(err)
+	}
+	return NewRouter(config, store)
+}
+
+// This test fails if printable trace QR files can be downloaded without an
+// administrator key or if the download stops being a valid PNG.
+func TestProductQRRequiresAPIKeyAndReturnsPNG(t *testing.T) {
+	router := routerWithDemoProduct(t)
+
+	denied := httptest.NewRecorder()
+	router.ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/api/products/SP-DEMO-001/qr.png", nil))
+	if denied.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated QR status = %d, want %d", denied.Code, http.StatusUnauthorized)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/products/SP-DEMO-001/qr.png", nil)
+	request.Header.Set("X-API-Key", "admin-key")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("QR status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if response.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("QR content type = %q, want image/png", response.Header().Get("Content-Type"))
+	}
+	if !bytes.HasPrefix(response.Body.Bytes(), []byte{137, 80, 78, 71}) {
+		t.Fatal("QR body is not a PNG")
+	}
+}
+
+func TestProductQRReturnsNotFoundForUnknownTraceCode(t *testing.T) {
+	router := routerWithDemoProduct(t)
+	request := httptest.NewRequest(http.MethodGet, "/api/products/SP-MISSING-001/qr.png", nil)
+	request.Header.Set("X-API-Key", "admin-key")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	if response.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+		t.Fatalf("content type = %q, want JSON error", response.Header().Get("Content-Type"))
+	}
+}
+
+// This test fails if the public page loses essential product data or escapes
+// are removed and product text can execute as page markup.
+func TestPublicTracePageShowsFieldsAndEscapesProductText(t *testing.T) {
+	config := testConfig(t)
+	store, err := NewProductStore(config.DataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	product := validProduct()
+	product.Name = "<script>alert(1)</script>"
+	product.TraceCode = "SP-ESCAPE-001"
+	if err := store.Create(product); err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(config, store)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/trace/SP-ESCAPE-001", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	body := response.Body.String()
+	for _, label := range []string{"Tên sản phẩm", "Mã sản phẩm / lô", "Ngày sản xuất", "Hạn dùng", "Nơi sản xuất", "Trạng thái xác thực"} {
+		if !strings.Contains(body, label) {
+			t.Fatalf("page does not contain %q", label)
+		}
+	}
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatalf("page did not escape product name: %s", body)
+	}
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Fatal("page contains an executable script tag from product text")
+	}
+}
+
+func TestPublicTracePageReturnsNotFoundForUnknownCode(t *testing.T) {
+	router := routerWithDemoProduct(t)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/trace/SP-MISSING-001", nil))
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	if response.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatalf("content type = %q, want HTML error", response.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(response.Body.String(), "Không tìm thấy sản phẩm") {
+		t.Fatalf("missing public not-found message: %s", response.Body.String())
+	}
+}
+
+func routerWithDemoProduct(t *testing.T) http.Handler {
+	t.Helper()
+	config := testConfig(t)
+	store, err := NewProductStore(config.DataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(validProduct()); err != nil {
 		t.Fatal(err)
 	}
 	return NewRouter(config, store)
