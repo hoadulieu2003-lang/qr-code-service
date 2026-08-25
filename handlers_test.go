@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,6 +57,48 @@ func TestCreateProductReturnsTraceAndQRURLs(t *testing.T) {
 	}
 	if payload.QRURL != baseURL+"/api/products/SP-DEMO-001/qr.png" {
 		t.Fatalf("qr_url = %q", payload.QRURL)
+	}
+}
+
+// This test fails if the shared product-creation path returns URLs different
+// from the public trace URL and printable QR URL required by API consumers.
+func TestCreateProductServiceCreatesTraceURLs(t *testing.T) {
+	config := testConfig(t)
+	store, err := NewProductStore(config.DataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := createProduct(config, store, validProduct())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TraceURL != "http://192.168.1.20:18080/trace/SP-DEMO-001" {
+		t.Fatalf("TraceURL = %q", result.TraceURL)
+	}
+	if result.QRURL != "http://192.168.1.20:18080/api/products/SP-DEMO-001/qr.png" {
+		t.Fatalf("QRURL = %q", result.QRURL)
+	}
+}
+
+// This test fails if invalid product data or an unusable public URL can be
+// confused with storage errors by either the JSON API or the admin form.
+func TestCreateProductServiceClassifiesFailures(t *testing.T) {
+	config := testConfig(t)
+	store, err := NewProductStore(config.DataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invalid := validProduct()
+	invalid.Origin = ""
+	if _, err := createProduct(config, store, invalid); !errors.Is(err, ErrInvalidProduct) {
+		t.Fatalf("invalid product error = %v", err)
+	}
+
+	config.PublicBaseURL = ""
+	if _, err := createProduct(config, store, validProduct()); !errors.Is(err, ErrPublicTraceURLUnavailable) {
+		t.Fatalf("public URL error = %v", err)
 	}
 }
 

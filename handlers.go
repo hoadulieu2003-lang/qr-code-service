@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -18,12 +19,40 @@ type createProductResponse struct {
 	QRURL     string `json:"qr_url"`
 }
 
-func hasAPIKey(request *http.Request, expected string) bool {
-	provided := request.Header.Get("X-API-Key")
+var (
+	ErrInvalidProduct            = errors.New("invalid product")
+	ErrPublicTraceURLUnavailable = errors.New("public trace URL is unavailable")
+)
+
+func hasAPIKeyValue(provided, expected string) bool {
 	if provided == "" || expected == "" || len(provided) != len(expected) {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
+
+func hasAPIKey(request *http.Request, expected string) bool {
+	return hasAPIKeyValue(request.Header.Get("X-API-Key"), expected)
+}
+
+func createProduct(config Config, store *ProductStore, product Product) (createProductResponse, error) {
+	product = product.normalized()
+	if err := product.Validate(); err != nil {
+		return createProductResponse{}, fmt.Errorf("%w: %v", ErrInvalidProduct, err)
+	}
+	traceURL, err := config.TraceURL(product.TraceCode)
+	if err != nil {
+		return createProductResponse{}, fmt.Errorf("%w: %v", ErrPublicTraceURLUnavailable, err)
+	}
+	if err := store.Create(product); err != nil {
+		return createProductResponse{}, err
+	}
+
+	return createProductResponse{
+		TraceCode: product.TraceCode,
+		TraceURL:  traceURL,
+		QRURL:     config.PublicBaseURL + "/api/products/" + product.TraceCode + "/qr.png",
+	}, nil
 }
 
 func createProductHandler(config Config, store *ProductStore) http.HandlerFunc {
@@ -49,18 +78,13 @@ func createProductHandler(config Config, store *ProductStore) http.HandlerFunc {
 			return
 		}
 
-		product = product.normalized()
-		if err := product.Validate(); err != nil {
-			writeJSONError(writer, http.StatusBadRequest, err.Error())
-			return
-		}
-		traceURL, err := config.TraceURL(product.TraceCode)
+		result, err := createProduct(config, store, product)
 		if err != nil {
-			writeJSONError(writer, http.StatusServiceUnavailable, "public trace URL is unavailable")
-			return
-		}
-		if err := store.Create(product); err != nil {
 			switch {
+			case errors.Is(err, ErrInvalidProduct):
+				writeJSONError(writer, http.StatusBadRequest, err.Error())
+			case errors.Is(err, ErrPublicTraceURLUnavailable):
+				writeJSONError(writer, http.StatusServiceUnavailable, "public trace URL is unavailable")
 			case errors.Is(err, ErrDuplicateTraceCode):
 				writeJSONError(writer, http.StatusConflict, "trace code already exists")
 			default:
@@ -69,11 +93,7 @@ func createProductHandler(config Config, store *ProductStore) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(writer, http.StatusCreated, createProductResponse{
-			TraceCode: product.TraceCode,
-			TraceURL:  traceURL,
-			QRURL:     config.PublicBaseURL + "/api/products/" + product.TraceCode + "/qr.png",
-		})
+		writeJSON(writer, http.StatusCreated, result)
 	}
 }
 
