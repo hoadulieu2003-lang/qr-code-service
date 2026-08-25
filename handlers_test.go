@@ -102,6 +102,56 @@ func TestCreateProductServiceClassifiesFailures(t *testing.T) {
 	}
 }
 
+// This test fails if extracting shared creation logic changes the validation
+// error body relied on by existing JSON API clients.
+func TestCreateProductPreservesValidationErrorBody(t *testing.T) {
+	router := newTestRouter(t, "http://192.168.1.20:18080")
+	product := validProduct()
+	product.Origin = ""
+	body, err := json.Marshal(product)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/products", bytes.NewReader(body))
+	request.Header.Set("X-API-Key", "admin-key")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error != "origin must not be empty" {
+		t.Fatalf("error = %q, want original validation message", payload.Error)
+	}
+}
+
+// This test fails if a trace code that cannot fit a High-recovery QR can be
+// saved even though neither the admin page nor the printable PNG can use it.
+func TestCreateProductServiceRejectsUnencodableQRCodeWithoutPersisting(t *testing.T) {
+	config := testConfig(t)
+	store, err := NewProductStore(config.DataFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	product := validProduct()
+	product.TraceCode = strings.Repeat("A", 3000)
+
+	if _, err := createProduct(config, store, product); !errors.Is(err, ErrQRCodeUnavailable) {
+		t.Fatalf("createProduct() error = %v, want ErrQRCodeUnavailable", err)
+	}
+	if _, err := store.Get(product.TraceCode); !errors.Is(err, ErrProductNotFound) {
+		t.Fatalf("store.Get() error = %v, want ErrProductNotFound", err)
+	}
+}
+
 func TestCreateProductRejectsUnknownJSONField(t *testing.T) {
 	router := newTestRouter(t, "http://192.168.1.20:18080")
 	request := httptest.NewRequest(http.MethodPost, "/api/products", bytes.NewBufferString(`{"unexpected":true}`))

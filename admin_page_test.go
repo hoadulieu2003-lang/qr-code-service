@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 func newAdminRouter(t *testing.T, baseURL string) (http.Handler, *ProductStore) {
@@ -40,6 +42,7 @@ func validAdminForm() url.Values {
 func postAdminForm(router http.Handler, values url.Values) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(http.MethodPost, "/admin/products", strings.NewReader(values.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.RemoteAddr = "127.0.0.1:12345"
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	return response
@@ -50,7 +53,9 @@ func postAdminForm(router http.Handler, values url.Values) *httptest.ResponseRec
 func TestAdminFormRendersProductInputsAndPasswordAPIKey(t *testing.T) {
 	router, _ := newAdminRouter(t, "http://192.168.1.20:18080")
 	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin", nil))
+	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	router.ServeHTTP(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
@@ -98,6 +103,13 @@ func TestAdminCreatesProductAndEmbedsPNGQR(t *testing.T) {
 	}
 	if !bytes.HasPrefix(png, []byte{137, 80, 78, 71}) {
 		t.Fatal("QR data URI does not contain PNG bytes")
+	}
+	wantPNG, err := qrcode.Encode("http://192.168.1.20:18080/trace/SP-FORM-001", qrcode.High, 512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(png, wantPNG) {
+		t.Fatal("QR data URI is not the expected High-recovery 512px trace QR")
 	}
 	if !strings.Contains(body, "http://192.168.1.20:18080/trace/SP-FORM-001") {
 		t.Fatalf("response does not show the public trace URL: %s", body)
@@ -150,12 +162,21 @@ func TestAdminRejectsInvalidFormWithoutPersistingAndEscapesInput(t *testing.T) {
 // This test fails if a form can overwrite a trace record already created by
 // the same local tester.
 func TestAdminRejectsDuplicateTraceCode(t *testing.T) {
-	router, _ := newAdminRouter(t, "http://192.168.1.20:18080")
+	router, store := newAdminRouter(t, "http://192.168.1.20:18080")
 	if response := postAdminForm(router, validAdminForm()); response.Code != http.StatusCreated {
 		t.Fatalf("first status = %d, want %d", response.Code, http.StatusCreated)
 	}
-	if response := postAdminForm(router, validAdminForm()); response.Code != http.StatusConflict {
+	second := validAdminForm()
+	second.Set("name", "Sản phẩm không được ghi đè")
+	if response := postAdminForm(router, second); response.Code != http.StatusConflict {
 		t.Fatalf("second status = %d, want %d", response.Code, http.StatusConflict)
+	}
+	stored, err := store.Get("SP-FORM-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != "Sản phẩm nhập form" {
+		t.Fatalf("stored name = %q, want first product name", stored.Name)
 	}
 }
 
@@ -167,6 +188,32 @@ func TestAdminRejectsUnavailablePublicTraceURL(t *testing.T) {
 
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	if _, err := store.Get("SP-FORM-001"); !errors.Is(err, ErrProductNotFound) {
+		t.Fatalf("store.Get() error = %v, want ErrProductNotFound", err)
+	}
+}
+
+// This test fails if a LAN client can access the local-only administration
+// form or save a product after observing the unauthenticated form page.
+func TestAdminRejectsNonLoopbackRequests(t *testing.T) {
+	router, store := newAdminRouter(t, "http://192.168.1.20:18080")
+	getRequest := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	getRequest.RemoteAddr = "192.168.1.50:12345"
+	getResponse := httptest.NewRecorder()
+	router.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusForbidden {
+		t.Fatalf("GET status = %d, want %d", getResponse.Code, http.StatusForbidden)
+	}
+
+	values := validAdminForm()
+	postRequest := httptest.NewRequest(http.MethodPost, "/admin/products", strings.NewReader(values.Encode()))
+	postRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postRequest.RemoteAddr = "192.168.1.50:12345"
+	postResponse := httptest.NewRecorder()
+	router.ServeHTTP(postResponse, postRequest)
+	if postResponse.Code != http.StatusForbidden {
+		t.Fatalf("POST status = %d, want %d", postResponse.Code, http.StatusForbidden)
 	}
 	if _, err := store.Get("SP-FORM-001"); !errors.Is(err, ErrProductNotFound) {
 		t.Fatalf("store.Get() error = %v, want ErrProductNotFound", err)

@@ -4,9 +4,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"html/template"
+	"net"
 	"net/http"
-
-	qrcode "github.com/skip2/go-qrcode"
 )
 
 type adminView struct {
@@ -88,14 +87,35 @@ func renderAdmin(writer http.ResponseWriter, status int, view adminView) {
 	_ = adminTemplate.Execute(writer, view)
 }
 
+func isLoopbackRequest(request *http.Request) bool {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		host = request.RemoteAddr
+	}
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
+}
+
+func writeAdminLocalOnly(writer http.ResponseWriter) {
+	http.Error(writer, "Trang quan tri chi cho phep truy cap tu localhost.", http.StatusForbidden)
+}
+
 func adminFormHandler() http.HandlerFunc {
-	return func(writer http.ResponseWriter, _ *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if !isLoopbackRequest(request) {
+			writeAdminLocalOnly(writer)
+			return
+		}
 		renderAdmin(writer, http.StatusOK, adminView{})
 	}
 }
 
 func adminCreateProductHandler(config Config, store *ProductStore) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
+		if !isLoopbackRequest(request) {
+			writeAdminLocalOnly(writer)
+			return
+		}
 		if err := request.ParseForm(); err != nil {
 			renderAdmin(writer, http.StatusBadRequest, adminView{Error: "Dữ liệu biểu mẫu không hợp lệ."})
 			return
@@ -138,18 +158,10 @@ func adminCreateProductHandler(config Config, store *ProductStore) http.HandlerF
 			return
 		}
 
-		png, err := qrcode.Encode(result.TraceURL, qrcode.High, 512)
-		if err != nil {
-			renderAdmin(writer, http.StatusInternalServerError, adminView{
-				Product: product,
-				Error:   "Không thể tạo mã QR. Hãy thử lại.",
-			})
-			return
-		}
 		renderAdmin(writer, http.StatusCreated, adminView{
 			Product:  product,
 			TraceURL: result.TraceURL,
-			QRBase64: base64.StdEncoding.EncodeToString(png),
+			QRBase64: base64.StdEncoding.EncodeToString(result.qrPNG),
 		})
 	}
 }

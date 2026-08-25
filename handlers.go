@@ -17,12 +17,26 @@ type createProductResponse struct {
 	TraceCode string `json:"trace_code"`
 	TraceURL  string `json:"trace_url"`
 	QRURL     string `json:"qr_url"`
+	qrPNG     []byte
 }
 
 var (
 	ErrInvalidProduct            = errors.New("invalid product")
 	ErrPublicTraceURLUnavailable = errors.New("public trace URL is unavailable")
+	ErrQRCodeUnavailable         = errors.New("QR code is unavailable")
 )
+
+type invalidProductError struct {
+	cause error
+}
+
+func (e invalidProductError) Error() string {
+	return e.cause.Error()
+}
+
+func (e invalidProductError) Unwrap() error {
+	return ErrInvalidProduct
+}
 
 func hasAPIKeyValue(provided, expected string) bool {
 	if provided == "" || expected == "" || len(provided) != len(expected) {
@@ -38,11 +52,15 @@ func hasAPIKey(request *http.Request, expected string) bool {
 func createProduct(config Config, store *ProductStore, product Product) (createProductResponse, error) {
 	product = product.normalized()
 	if err := product.Validate(); err != nil {
-		return createProductResponse{}, fmt.Errorf("%w: %v", ErrInvalidProduct, err)
+		return createProductResponse{}, invalidProductError{cause: err}
 	}
 	traceURL, err := config.TraceURL(product.TraceCode)
 	if err != nil {
 		return createProductResponse{}, fmt.Errorf("%w: %v", ErrPublicTraceURLUnavailable, err)
+	}
+	png, err := qrcode.Encode(traceURL, qrcode.High, 512)
+	if err != nil {
+		return createProductResponse{}, fmt.Errorf("%w: %v", ErrQRCodeUnavailable, err)
 	}
 	if err := store.Create(product); err != nil {
 		return createProductResponse{}, err
@@ -52,6 +70,7 @@ func createProduct(config Config, store *ProductStore, product Product) (createP
 		TraceCode: product.TraceCode,
 		TraceURL:  traceURL,
 		QRURL:     config.PublicBaseURL + "/api/products/" + product.TraceCode + "/qr.png",
+		qrPNG:     png,
 	}, nil
 }
 
