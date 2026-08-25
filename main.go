@@ -48,7 +48,11 @@ func main() {
 		os.Exit(runHealthcheck(config))
 	}
 
-	router := NewRouter(config, nil)
+	store, err := NewProductStore(config.DataFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	router := NewRouter(config, store)
 	log.Printf("Server starting on port %s", config.Port)
 	if config.SSL {
 		err = http.ListenAndServeTLS(":"+config.Port, "certificate.pem", "key.pem", router)

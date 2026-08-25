@@ -9,7 +9,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-func NewRouter(config Config, _ *ProductStore) http.Handler {
+func NewRouter(config Config, store *ProductStore) http.Handler {
 	router := chi.NewRouter()
 	if config.EnableLogs {
 		router.Use(middleware.Logger)
@@ -64,6 +64,10 @@ func NewRouter(config Config, _ *ProductStore) http.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", http.MethodGet)
 		w.WriteHeader(http.StatusOK)
 	})
+
+	if store != nil {
+		router.Post("/api/products", createProductHandler(config, store))
+	}
 
 	return router
 }
