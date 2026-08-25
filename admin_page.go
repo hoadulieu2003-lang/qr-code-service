@@ -65,7 +65,6 @@ var adminTemplate = template.Must(template.New("admin").Parse(`<!doctype html>
             <option value="unverified" {{if eq .Product.VerificationStatus "unverified"}}selected{{end}}>unverified</option>
           </select>
         </label>
-        <label>API key<input type="password" name="api_key" required autocomplete="off"></label>
       </div>
       <button type="submit">Tạo QR</button>
     </form>
@@ -131,14 +130,6 @@ func adminCreateProductHandler(config Config, store *ProductStore) http.HandlerF
 			Origin:             request.PostForm.Get("origin"),
 			VerificationStatus: request.PostForm.Get("verification_status"),
 		}
-		if !hasAPIKeyValue(request.PostForm.Get("api_key"), config.APIKey) {
-			renderAdmin(writer, http.StatusUnauthorized, adminView{
-				Product: product,
-				Error:   "API key không đúng hoặc đang thiếu.",
-			})
-			return
-		}
-
 		result, err := createProduct(config, store, product)
 		if err != nil {
 			status := http.StatusInternalServerError

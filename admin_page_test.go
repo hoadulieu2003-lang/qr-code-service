@@ -35,7 +35,6 @@ func validAdminForm() url.Values {
 		"expires_at":          {"2027-08-25"},
 		"origin":              {"Đắk Lắk, Việt Nam"},
 		"verification_status": {"verified"},
-		"api_key":             {"admin-key"},
 	}
 }
 
@@ -48,9 +47,9 @@ func postAdminForm(router http.Handler, values url.Values) *httptest.ResponseRec
 	return response
 }
 
-// This test fails if a tester cannot enter every Product field through the
-// local page or the administrator key would be exposed as ordinary text.
-func TestAdminFormRendersProductInputsAndPasswordAPIKey(t *testing.T) {
+// This test fails if the localhost-only quick-test form still asks a tester
+// for credentials instead of accepting only the Product fields.
+func TestAdminFormRendersOnlyProductInputs(t *testing.T) {
 	router, _ := newAdminRouter(t, "http://192.168.1.20:18080")
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
@@ -69,8 +68,8 @@ func TestAdminFormRendersProductInputsAndPasswordAPIKey(t *testing.T) {
 			t.Fatalf("form is missing product input %q", name)
 		}
 	}
-	if !strings.Contains(body, `<input type="password" name="api_key"`) {
-		t.Fatalf("form does not render API key as a password input: %s", body)
+	if strings.Contains(body, `name="api_key"`) || strings.Contains(body, `type="password"`) {
+		t.Fatalf("form still exposes a browser API key field: %s", body)
 	}
 }
 
@@ -116,22 +115,22 @@ func TestAdminCreatesProductAndEmbedsPNGQR(t *testing.T) {
 	}
 }
 
-// This test fails if a rejected key can create a public trace record or if
-// the local page reflects the secret back into its HTML response.
-func TestAdminRejectsWrongKeyWithoutPersistingOrEchoingIt(t *testing.T) {
+// This test fails if the quick-test form depends on a browser-supplied API
+// key or reflects an unexpected key-like field in its result HTML.
+func TestAdminIgnoresUnexpectedAPIKeyFormField(t *testing.T) {
 	router, store := newAdminRouter(t, "http://192.168.1.20:18080")
 	values := validAdminForm()
-	values.Set("api_key", "wrong-key")
+	values.Set("api_key", "ignored-local-value")
 	response := postAdminForm(router, values)
 
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusCreated)
 	}
-	if strings.Contains(response.Body.String(), "wrong-key") {
-		t.Fatal("response echoes the submitted API key")
+	if strings.Contains(response.Body.String(), "ignored-local-value") {
+		t.Fatal("response reflects the unexpected API key field")
 	}
-	if _, err := store.Get("SP-FORM-001"); !errors.Is(err, ErrProductNotFound) {
-		t.Fatalf("store.Get() error = %v, want ErrProductNotFound", err)
+	if _, err := store.Get("SP-FORM-001"); err != nil {
+		t.Fatal(err)
 	}
 }
 
