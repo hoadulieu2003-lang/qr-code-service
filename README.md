@@ -352,15 +352,15 @@ Use the phone camera to scan the image while the phone is on the same Wi-Fi. It 
 
 ### Create a product from the local web form
 
-For a browser-first test without manually calling the API, keep the same `.env` configuration above: `API_KEY` must be set and `PUBLIC_BASE_URL` must use the computer's IPv4 address on the shared Wi-Fi.
+For a browser-first test without manually calling the API, keep the same `.env` configuration above. `PUBLIC_BASE_URL` must use the computer's IPv4 address on the shared Wi-Fi. `API_KEY` remains a server-side setting for integration APIs; the localhost-only form never asks for it.
 
 1. Start the service, then on the computer running it open `http://localhost:18080/admin`. Replace `18080` if `PORT` in `.env` uses a different value.
-2. Enter a new `trace_code`, all product fields, and the `API_KEY` from `.env`, then select **Tạo QR**.
+2. Enter a new `trace_code` and all product fields, then select **Tạo QR**.
 3. The result page shows a QR and the public trace URL. Scan the QR with a phone on the same Wi-Fi. The phone must open the LAN `trace_url`, not `localhost`.
 4. Confirm the public page shows six rows: product name, product/batch code, manufacture date, expiry date, origin, and verification status.
-5. Enter a wrong API key to confirm `401`, then submit the same `trace_code` again to confirm `409`. Neither operation must create or overwrite a product.
+5. Submit the same `trace_code` again to confirm `409`; it must not overwrite the first product.
 
-The form never renders the submitted API key again. This page is for local/internal testing over HTTP only; before public deployment, put the service behind HTTPS and require a real authenticated administrator session.
+The localhost-only form does not use browser-provided credentials. The integration APIs still require `X-API-Key`. This page is for local/internal testing over HTTP only; before public deployment, put the service behind HTTPS and require a real authenticated administrator session.
 
 ### API result codes
 
