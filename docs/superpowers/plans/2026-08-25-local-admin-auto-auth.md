@@ -179,4 +179,3 @@ git commit -m "docs: simplify local QR test"
 | Fast no-key local/phone instructions | Task 2, Steps 1 and 4 |
 
 Completeness review: every referenced function exists in current source, no new service/database/account is introduced, and each changed behavior has an automated test before production code changes.
-
