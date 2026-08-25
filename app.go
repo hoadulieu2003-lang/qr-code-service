@@ -9,10 +9,6 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
-// ProductStore is intentionally empty in Task 1. Task 2 adds its persistence
-// fields and methods while preserving the router dependency boundary.
-type ProductStore struct{}
-
 func NewRouter(config Config, _ *ProductStore) http.Handler {
 	router := chi.NewRouter()
 	if config.EnableLogs {
