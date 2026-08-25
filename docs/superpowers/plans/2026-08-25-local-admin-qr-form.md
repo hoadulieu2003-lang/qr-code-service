@@ -447,4 +447,3 @@ git commit -m "docs: add local QR admin test guide"
 | Local browser plus shared-Wi-Fi phone acceptance | Task 3 |
 
 Completeness review: every symbol consumed by a task appears in Shared interfaces or current source; the plan adds no account system, database, public admin route, or browser-side API call.
-
