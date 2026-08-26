@@ -296,6 +296,23 @@ Please feel free to open an issue, explaining what happens, and describing your 
 
 The traceability API stores a small local product catalogue in `data/products.json`, generates a PNG QR code for each product, and serves a public phone-friendly trace page. Management endpoints require the `X-API-Key` header; only the public `/trace/{trace_code}` page is unprotected.
 
+### Handover entrypoint
+
+For the Windows QR traceability handover, begin with these Vietnamese operating documents:
+
+- [Quick start and local phone setup](docs/handover/01-quick-start.md)
+- [API integration contract](docs/handover/02-api-integration.md)
+- [Detailed acceptance test guide](docs/handover/03-test-guide.md)
+- [Handover checklist](docs/handover/04-handover-checklist.md)
+
+Operational scripts are tracked under [`scripts/`](scripts/):
+
+- `start-local.ps1` validates config, builds and runs the server in the foreground.
+- `check-health.ps1` proves `/health` and the localhost-only admin form without reading a key.
+- `test-api.ps1` creates one caller-selected product and checks its public trace page without printing a key.
+
+`docs/superpowers/` preserves engineering plans/history. `.env`, `data/`, and Windows executables are per-instance runtime artifacts: keep them out of Git and back up data separately.
+
 ### Configure for a phone on the same Wi-Fi
 
 1. Find the IPv4 address of the Wi-Fi adapter:
