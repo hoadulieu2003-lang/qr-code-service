@@ -10,10 +10,13 @@ Trong các ví dụ, thay hai biến bằng giá trị của môi trường ch�
 
 ```powershell
 $baseUrl = 'http://192.168.1.22:18080'
-$apiKey = Read-Host 'Nhap API key'
+$apiKey = $env:QR_API_KEY
+if ([string]::IsNullOrWhiteSpace($apiKey)) {
+  throw 'QR_API_KEY is not available in this process. Load it from the backend secret store first.'
+}
 ```
 
-Khi tích hợp thực tế, lấy `baseUrl` và key từ biến môi trường hoặc kho bí mật của backend, không hard-code vào source.
+Thiết lập `QR_API_KEY` từ secret store hoặc biến môi trường bảo mật của backend trước khi gọi. Không nhập/copy API key qua prompt tương tác, không hard-code vào source, và không đưa nó vào log/biên bản.
 
 ## Dữ liệu sản phẩm: đủ 8 trường
 
@@ -132,12 +135,12 @@ Invoke-WebRequest -UseBasicParsing "$baseUrl/health"
 | `201` | Tạo mới thành công | Lưu `trace_code`, `trace_url`, `qr_url`; có thể tải QR |
 | `400` | JSON, content type hoặc 8 trường không hợp lệ | Sửa dữ liệu, không retry nguyên trạng |
 | `401` | Thiếu/sai `X-API-Key` | Kiểm tra secret phía server, tuyệt đối không log key |
-| `404` | QR hoặc trace code không tồn tại | Kiểm tra mã đã lưu/còn dữ liệu hay không |
+| `404` | QR API hoặc public trace code không tồn tại | Kiểm tra mã đã lưu/còn dữ liệu hay không; QR API trả JSON, public trace trả HTML |
 | `409` | `trace_code` đã tồn tại | Không coi là tạo thành công; dùng mã mới hoặc tra dữ liệu cũ |
 | `500` | Lưu dữ liệu hoặc tạo QR thất bại | Không tự giả định QR đã tạo; kiểm tra `/trace/{traceCode}` trước khi retry |
 | `503` | `PUBLIC_BASE_URL` không dùng được để sinh URL công khai | Sửa cấu hình URL tuyệt đối HTTP/HTTPS, không có `/` ở cuối |
 
-Mọi lỗi API hiện trả JSON dạng `{ "error": "..." }`. Các lỗi validation giữ thông điệp chi tiết để backend hiển thị/log nội bộ an toàn.
+Các lỗi của endpoint `/api/...` trả JSON dạng `{ "error": "..." }`; các lỗi validation giữ thông điệp chi tiết để backend hiển thị/log nội bộ an toàn. Riêng `/trace/{traceCode}` là trang công khai: mã không tồn tại trả trang HTML `404`.
 
 ## Script kiểm thử nhanh cho backend
 
