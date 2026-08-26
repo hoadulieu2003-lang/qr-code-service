@@ -7,7 +7,6 @@
 *.out
 *.backup
 go.work
-scripts
 .aliases
 .env
 cloud
