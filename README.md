@@ -292,6 +292,105 @@ Please make sure that :
 
 Please feel free to open an issue, explaining what happens, and describing your environment.
 
+## Product traceability MVP
+
+The traceability API stores a small local product catalogue in `data/products.json`, generates a PNG QR code for each product, and serves a public phone-friendly trace page. Management endpoints require the `X-API-Key` header; only the public `/trace/{trace_code}` page is unprotected.
+
+### Handover entrypoint
+
+For the Windows QR traceability handover, begin with these Vietnamese operating documents:
+
+- [Quick start and local phone setup](docs/handover/01-quick-start.md)
+- [API integration contract](docs/handover/02-api-integration.md)
+- [Detailed acceptance test guide](docs/handover/03-test-guide.md)
+- [Handover checklist](docs/handover/04-handover-checklist.md)
+
+Operational scripts are tracked under [`scripts/`](scripts/):
+
+- `start-local.ps1` validates config, builds and runs the server in the foreground.
+- `check-health.ps1` proves `/health` and the localhost-only admin form without reading a key.
+- `test-api.ps1` creates one caller-selected product and checks its public trace page without printing a key.
+- For the fastest local HTTP test, double-click [`MO_TEST_QR.bat`](MO_TEST_QR.bat) with `SSL=FALSE`. It starts the server only when needed, waits for it, then opens `/admin`; stop the separate **QR Server** PowerShell window with `Ctrl+C`.
+
+`docs/superpowers/` preserves engineering plans/history. `.env`, `data/`, and Windows executables are per-instance runtime artifacts: keep them out of Git and back up data separately.
+
+### Configure for a phone on the same Wi-Fi
+
+1. Find the IPv4 address of the Wi-Fi adapter:
+
+   ```powershell
+   Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'Wi-Fi' }
+   ```
+
+2. Copy `sample.env` to `.env`, set a random `API_KEY`, then set `PUBLIC_BASE_URL` to the address found above. For example:
+
+   ```dotenv
+   PORT=18080
+   API_KEY="replace-with-a-random-value"
+   PUBLIC_BASE_URL="http://192.168.1.22:18080"
+   DATA_FILE="data/products.json"
+   ```
+
+   Do not use `127.0.0.1` in `PUBLIC_BASE_URL`: it points to the phone itself after scanning, not this server.
+
+3. Build and run the service:
+
+   ```powershell
+   go build -o bond.exe .
+   .\bond.exe
+   ```
+
+   If Windows Firewall asks, allow the service on the private Wi-Fi network so the phone can reach it.
+
+### Create and scan a demo product
+
+In a second PowerShell window, load the local settings and create the product:
+
+```powershell
+$apiKey = (Select-String '^API_KEY=' '.env').Line.Split('"')[1]
+$baseUrl = (Select-String '^PUBLIC_BASE_URL=' '.env').Line.Split('"')[1]
+$product = @{
+  trace_code = 'SP-DEMO-001'; product_code = 'SP-001'; name = 'Cà phê rang xay Demo'
+  batch_code = 'LO-2026-001'; manufactured_at = '2026-08-25'; expires_at = '2027-08-25'
+  origin = 'Đắk Lắk, Việt Nam'; verification_status = 'verified'
+} | ConvertTo-Json
+
+$created = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/products" -Headers @{ 'X-API-Key' = $apiKey } -ContentType 'application/json' -Body $product
+$created
+```
+
+Download and open the QR image:
+
+```powershell
+Invoke-WebRequest -Uri $created.qr_url -Headers @{ 'X-API-Key' = $apiKey } -OutFile '.\SP-DEMO-001.png'
+Start-Process '.\SP-DEMO-001.png'
+```
+
+Use the phone camera to scan the image while the phone is on the same Wi-Fi. It must open `$created.trace_url` and show six rows: product name, product/batch code, manufacture date, expiry date, origin, and `verified` status.
+
+### Create a product from the local web form
+
+For a browser-first test without manually calling the API, keep the same `.env` configuration above. `PUBLIC_BASE_URL` must use the computer's IPv4 address on the shared Wi-Fi. `API_KEY` remains a server-side setting for integration APIs; the localhost-only form never asks for it.
+
+1. Start the service, then on the computer running it open `http://localhost:18080/admin`. Replace `18080` if `PORT` in `.env` uses a different value.
+2. Enter a new `trace_code` and all product fields, then select **Tạo QR**.
+3. The result page shows a QR and the public trace URL. Scan the QR with a phone on the same Wi-Fi. The phone must open the LAN `trace_url`, not `localhost`.
+4. Confirm the public page shows six rows: product name, product/batch code, manufacture date, expiry date, origin, and verification status.
+5. Submit the same `trace_code` again to confirm `409`; it must not overwrite the first product.
+
+The localhost-only form does not use browser-provided credentials. The integration APIs still require `X-API-Key`. This page is for local/internal testing over HTTP only; before public deployment, put the service behind HTTPS and require a real authenticated administrator session.
+
+### API result codes
+
+| Request | Expected result |
+| --- | --- |
+| `POST /api/products` without or with wrong `X-API-Key` | `401` |
+| Create a valid new product | `201` with `trace_url` and `qr_url` |
+| Create an existing `trace_code` | `409` |
+| `GET /api/products/{trace_code}/qr.png` with API key | `200 image/png` |
+| `GET /trace/{trace_code}` | `200 text/html` |
+| Unknown public trace code | `404 text/html` |
+
 ## Credits
 
 Hey hey ! It's always a good idea to say thank you and mention the people and projects that help us move forward.

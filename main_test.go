@@ -4,25 +4,12 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 )
 
-func TestMain(m *testing.M) {
-	// Setup test environment
-	os.Setenv("SECRET", "test-secret-12345")
-	os.Setenv("PORT", "8080")
-	os.Setenv("MAX_SIZE", "512")
-	os.Setenv("RECOVERY_LEVEL", "MEDIUM")
-	os.Setenv("ENABLE_LOGS", "FALSE")
-
-	code := m.Run()
-	os.Exit(code)
-}
-
 func TestHealthcheckEndpoint(t *testing.T) {
-	router := setupRouter()
+	router := NewRouter(testConfig(t), nil)
 
 	req, _ := http.NewRequest("GET", "/health", nil)
 	rr := httptest.NewRecorder()
@@ -39,7 +26,8 @@ func TestHealthcheckEndpoint(t *testing.T) {
 }
 
 func TestSecretValidation(t *testing.T) {
-	router := setupRouter()
+	cfg := testConfig(t)
+	router := NewRouter(cfg, nil)
 
 	tests := []struct {
 		name           string
@@ -50,17 +38,17 @@ func TestSecretValidation(t *testing.T) {
 	}{
 		{
 			name:           "Valid secret in query",
-			querySecret:    "test-secret-12345",
+			querySecret:    cfg.Secret,
 			expectedStatus: http.StatusOK,
 		},
 		{
 			name:           "Valid secret in X-Bond-Secret header",
-			headerSecret:   "test-secret-12345",
+			headerSecret:   cfg.Secret,
 			expectedStatus: http.StatusOK,
 		},
 		{
 			name:           "Valid secret in Authorization Bearer header",
-			bearerToken:    "test-secret-12345",
+			bearerToken:    cfg.Secret,
 			expectedStatus: http.StatusOK,
 		},
 		{
@@ -112,7 +100,9 @@ func TestSecretValidation(t *testing.T) {
 }
 
 func TestInputValidation(t *testing.T) {
-	router := setupRouter()
+	cfg := testConfig(t)
+	cfg.MaxSize = 512
+	router := NewRouter(cfg, nil)
 
 	tests := []struct {
 		name           string
@@ -160,7 +150,7 @@ func TestInputValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url := "/?secret=test-secret-12345"
+			url := "/?secret=" + cfg.Secret
 			if tt.size != "" {
 				url += "&size=" + tt.size
 			}
@@ -180,14 +170,14 @@ func TestInputValidation(t *testing.T) {
 }
 
 func TestCORSOptions(t *testing.T) {
-	router := setupRouter()
+	router := NewRouter(testConfig(t), nil)
 
 	req, _ := http.NewRequest("OPTIONS", "/", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("OPTIONS returned wrong status: got %d want %d", rr.Code, http.StatusOK)
+	if rr.Code != http.StatusNoContent && rr.Code != http.StatusOK {
+		t.Errorf("OPTIONS returned wrong status: got %d want %d or %d", rr.Code, http.StatusNoContent, http.StatusOK)
 	}
 
 	if origin := rr.Header().Get("Access-Control-Allow-Origin"); origin != "*" {

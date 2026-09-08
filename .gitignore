@@ -7,8 +7,8 @@
 *.out
 *.backup
 go.work
-scripts
 .aliases
 .env
 cloud
 /.worktrees/
+data/
