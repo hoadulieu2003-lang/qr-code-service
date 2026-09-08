@@ -310,6 +310,7 @@ Operational scripts are tracked under [`scripts/`](scripts/):
 - `start-local.ps1` validates config, builds and runs the server in the foreground.
 - `check-health.ps1` proves `/health` and the localhost-only admin form without reading a key.
 - `test-api.ps1` creates one caller-selected product and checks its public trace page without printing a key.
+- For the fastest local HTTP test, double-click [`MO_TEST_QR.bat`](MO_TEST_QR.bat) with `SSL=FALSE`. It starts the server only when needed, waits for it, then opens `/admin`; stop the separate **QR Server** PowerShell window with `Ctrl+C`.
 
 `docs/superpowers/` preserves engineering plans/history. `.env`, `data/`, and Windows executables are per-instance runtime artifacts: keep them out of Git and back up data separately.
 
